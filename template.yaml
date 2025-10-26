@@ -101,6 +101,14 @@ Resources:
   CountVisitsFunction:
     Type: AWS::Serverless::Function
     DeletionPolicy: Delete
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2022"
+        Sourcemap: true
+        EntryPoints:
+          - handler.ts
     Properties:
       FunctionName: !Sub "${AWS::StackName}-${Environment}-lambda"
       CodeUri: src/
