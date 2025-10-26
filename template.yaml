@@ -134,7 +134,6 @@ Resources:
         Application: count-visit-api
         ManagedBy: aws-sam
         Environment: !Ref Environment
-
   # API Gateway
   CountVisitApi:
     Type: AWS::Serverless::Api
