@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+# Stack-level tags for AWS Application Manager
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Application Configuration"
+        Parameters:
+          - ApplicationName
+          - Environment
+Description: >
+  count-visit-api - SAM Template for Count Visit API that tracks website visits by origin with monthly reset
+
+# Global tags applied to all resources
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+    Runtime: nodejs22.x
+    Architectures:
+      - x86_64
+    Tags:
+      Project: count-visit-api
+      Application: count-visit-api
+      ManagedBy: aws-sam
+      Environment: !Ref Environment
+
+# Parameters for different environments
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: "count-visit-api"
+    Description: Name of the application for AWS Application Manager
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name (dev, prod)
+
+  AllowedOrigins:
+    Type: String
+    Default: "http://localhost:3000"
+    Description: Comma-separated list of allowed origins for CORS
+
+Resources:
+  # S3 Bucket for storing visit data
+  VisitsBucket:
+    Type: AWS::S3::Bucket
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVisitData
+            Status: Enabled
+            ExpirationInDays: 32 # Keep data for current + previous month
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: count-visit-api
+        - Key: Application
+          Value: count-visit-api
+        - Key: ManagedBy
+          Value: aws-sam
+        - Key: Environment
+          Value: !Ref Environment
+  # Usage Plan for API rate limiting and quotas
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      UsagePlanName: !Sub "${AWS::StackName}-${Environment}-usage-plan"
+      Description: Rate limiting and quota management for Count Visit API
+      ApiStages:
+        - ApiId: !Ref CountVisitApi
+          Stage: !Ref Environment
+      Throttle:
+        RateLimit: 5 # 5 requests per second
+        BurstLimit: 10 # 10 request burst
+      Quota:
+        Limit: 10000 # 10k requests per day
+        Period: DAY
+      Tags:
+        - Key: Project
+          Value: count-visit-api
+        - Key: Application
+          Value: count-visit-api
+        - Key: ManagedBy
+          Value: aws-sam
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda function for counting visits
+  CountVisitsFunction:
+    Type: AWS::Serverless::Function
+    DeletionPolicy: Delete
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-${Environment}-lambda"
+      CodeUri: src/
+      Handler: handler.countVisits
+      Description: Lambda function to track and count website visits by origin
+      Environment:
+        Variables:
+          VISITS_BUCKET: !Ref VisitsBucket
+          ENVIRONMENT: !Ref Environment
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref VisitsBucket
+        - S3WritePolicy:
+            BucketName: !Ref VisitsBucket
+      Events:
+        CountVisitApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CountVisitApi
+            Path: /count-visit
+            Method: post
+        HealthCheckApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CountVisitApi
+            Path: /health
+            Method: get
+      Tags:
+        Project: count-visit-api
+        Application: count-visit-api
+        ManagedBy: aws-sam
+        Environment: !Ref Environment
+
+  # API Gateway
+  CountVisitApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-${Environment}-api-gateway"
+      StageName: !Ref Environment
+      Description: API Gateway for Count Visit API
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        AllowCredentials: false
+      Tags:
+        Project: count-visit-api
+        Application: count-visit-api
+        ManagedBy: aws-sam
+        Environment: !Ref Environment
+Outputs:
+  CountVisitApi:
+    Description: "API Gateway endpoint URL for Count Visit API"
+    Value: !Sub "https://${CountVisitApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiUrl-${Environment}"
+
+  CountVisitsFunction:
+    Description: "Count Visits Lambda Function ARN"
+    Value: !GetAtt CountVisitsFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionArn-${Environment}"
+
+  VisitsBucket:
+    Description: "S3 Bucket for storing visit data"
+    Value: !Ref VisitsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-BucketName-${Environment}"
+
+  ApiUsagePlan:
+    Description: "API Gateway Usage Plan for rate limiting"
+    Value: !Ref ApiUsagePlan
+    Export:
+      Name: !Sub "${AWS::StackName}-UsagePlan-${Environment}"
+
+  StackName:
+    Description: "Name of this CloudFormation stack"
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub "${AWS::StackName}-StackName-${Environment}"
