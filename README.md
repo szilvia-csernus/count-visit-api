@@ -242,7 +242,7 @@ CORS preflight request handler.
 // Simple visit tracking
 async function trackVisit() {
   try {
-    const response = await fetch("https://your-api-url/count-visit", {
+    const response = await fetch(`${apiUrl}/count-visit`, {
       method: "POST",
     });
 
@@ -306,7 +306,7 @@ function App() {
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - AWS CLI configured
 - AWS SAM CLI installed
 - Jest for testing
@@ -485,27 +485,6 @@ sam logs -n CountVisitsFunction --filter "user-agent" --tail
 #### **Alternative: AWS WAF Bot Control**
 
 AWS offers managed bot protection through WAF Bot Control with ML-powered detection and zero maintenance. However, for this small-scale visit tracking API, the custom approach provides better cost efficiency and learning value while meeting all security requirements.
-
-#### **Version Control for Bot Patterns**
-
-Consider maintaining bot patterns in a separate configuration file:
-
-```javascript
-// config/bot-patterns.js
-export const BOT_PATTERNS_VERSION = "2025.10";
-export const LAST_UPDATED = "2025-10-26";
-
-export const botPatterns = [
-  // ... patterns with comments indicating when added
-];
-```
-
-This approach allows for:
-
-- ✅ Version tracking of security updates
-- ✅ Easier testing of new patterns
-- ✅ Rollback capability if issues arise
-- ✅ Documentation of when patterns were added
 
 #### **Testing New Patterns**
 
