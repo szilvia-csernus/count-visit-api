@@ -1,0 +1,33 @@
+{
+  "name": "count-visit-api",
+  "version": "1.0.0",
+  "description": "AWS Lambda API for tracking website visit counts",
+  "type": "module",
+  "main": "src/handler.js",
+  "scripts": {
+    "build": "sam build",
+    "deploy": "sam deploy --guided",
+    "deploy:dev": "sam deploy --config-env dev",
+    "deploy:prod": "sam deploy --config-env prod",
+    "local": "sam local start-api",
+    "logs": "sam logs -n CountVisitsFunction --tail",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "validate": "sam validate",
+    "delete": "sam delete"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.916.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "sam",
+    "visit-tracking",
+    "analytics"
+  ],
+  "author": "Szilvia",
+  "license": "MIT"
+}
