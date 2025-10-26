@@ -3,6 +3,11 @@ import {
   GetObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import type { 
+  APIGatewayProxyEvent, 
+  APIGatewayProxyResult,
+  Context 
+} from "aws-lambda";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || "us-east-1",
@@ -10,13 +15,29 @@ const s3Client = new S3Client({
 const BUCKET_NAME = process.env.VISITS_BUCKET;
 
 // Allowed origins
-const ALLOWED_ORIGINS =
+const ALLOWED_ORIGINS: string[] =
   process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) || [];
+
+interface VisitData {
+  origin: string;
+  yearMonth: string;
+  visitCount: number;
+  lastVisitDate: string | null;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  error?: string;
+  code?: number;
+  origin?: string;
+  sourceIP?: string;
+  userAgent?: string;
+}
 
 /**
  * Enhanced request validation with security checks
  */
-function validateRequest(event) {
+function validateRequest(event: APIGatewayProxyEvent): ValidationResult {
   const origin = event.headers?.origin || event.headers?.Origin;
   const userAgent = event.headers?.["user-agent"] || event.headers?.["User-Agent"] || "";
   const sourceIP = event.requestContext?.identity?.sourceIp || "unknown";
@@ -42,6 +63,8 @@ function validateRequest(event) {
   }
   
   // 2. Block known bot patterns (comprehensive 2025 strict list)
+  // Version: 2025.10 | Last Updated: October 26, 2025
+  // Next Review: January 2026 (3-month cycle)
   const botPatterns = [
     // Generic bot terms
     /bot/i, /crawler/i, /spider/i, /scraper/i,
@@ -74,7 +97,7 @@ function validateRequest(event) {
     // Web scraping tools
     /scrapy/i, /beautifulsoup/i, /selenium/i, /puppeteer/i,
     /parsehub/i, /octoparse/i, /80legs/i, /visual scraper/i,
-    /scrapebox/i, /webscraper/i, /import.io/i,
+    /scrapebox/i, /webscraper/i, /import\.io/i,
     
     // Development and testing tools
     /curl/i, /wget/i, /httpie/i, /python-requests/i,
@@ -86,7 +109,7 @@ function validateRequest(event) {
     /zombie/i, /jsdom/i,
     
     // Archive and research crawlers
-    /archive.org/i, /wayback/i, /heritrix/i, /nutch/i,
+    /archive\.org/i, /wayback/i, /heritrix/i, /nutch/i,
     
     // Malicious or suspicious patterns
     /hack/i, /scan/i, /exploit/i, /penetration/i, /attack/i,
@@ -94,7 +117,8 @@ function validateRequest(event) {
     
     // Empty or very short user agents (already handled above but keeping for clarity)
     /^$/  // Empty user agent
-  ];  
+  ];
+  
   if (botPatterns.some(pattern => pattern.test(userAgent))) {
     console.warn(`Blocked bot request: ${userAgent}, IP: ${sourceIP}`);
     return { valid: false, error: "Automated requests not allowed", code: 403 };
@@ -117,14 +141,14 @@ function validateRequest(event) {
 /**
  * Legacy function for backward compatibility
  */
-function isOriginAllowed(origin) {
+function isOriginAllowed(origin: string): boolean {
   return ALLOWED_ORIGINS.includes(origin);
 }
 
 /**
  * Get current year-month string (YYYY-MM format)
  */
-function getCurrentYearMonth() {
+function getCurrentYearMonth(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -134,7 +158,7 @@ function getCurrentYearMonth() {
 /**
  * Get visit data from S3
  */
-async function getVisitData(origin, yearMonth) {
+async function getVisitData(origin: string, yearMonth: string): Promise<VisitData> {
   const key = `visits/${origin}/${yearMonth}.json`;
 
   try {
@@ -144,9 +168,9 @@ async function getVisitData(origin, yearMonth) {
     });
 
     const response = await s3Client.send(command);
-    const data = await response.Body.transformToString();
-    return JSON.parse(data);
-  } catch (error) {
+    const data = await response.Body?.transformToString();
+    return JSON.parse(data || "{}") as VisitData;
+  } catch (error: any) {
     if (error.name === "NoSuchKey") {
       // File doesn't exist, return default data
       return {
@@ -163,7 +187,7 @@ async function getVisitData(origin, yearMonth) {
 /**
  * Save visit data to S3
  */
-async function saveVisitData(data) {
+async function saveVisitData(data: VisitData): Promise<void> {
   const key = `visits/${data.origin}/${data.yearMonth}.json`;
 
   const command = new PutObjectCommand({
@@ -179,7 +203,10 @@ async function saveVisitData(data) {
 /**
  * Main Lambda handler
  */
-export const countVisits = async (event) => {
+export const countVisits = async (
+  event: APIGatewayProxyEvent,
+  context: Context
+): Promise<APIGatewayProxyResult> => {
   // CORS headers
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -215,7 +242,7 @@ export const countVisits = async (event) => {
     
     if (!validation.valid) {
       return {
-        statusCode: validation.code,
+        statusCode: validation.code || 500,
         headers,
         body: JSON.stringify({
           error: validation.error,
@@ -231,7 +258,7 @@ export const countVisits = async (event) => {
     const currentDate = new Date().toISOString();
 
     // Get existing visit data
-    const visitData = await getVisitData(origin, currentYearMonth);
+    const visitData = await getVisitData(origin!, currentYearMonth);
 
     // Increment visit count
     visitData.visitCount += 1;
@@ -253,7 +280,7 @@ export const countVisits = async (event) => {
         timestamp: currentDate,
       }),
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error processing visit count:", error);
 
     return {
